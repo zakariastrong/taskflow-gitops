@@ -436,16 +436,6 @@ Correctif demandé : `starlette >= 1.3.1`, `urllib3 >= 2.8.0`.
 
 ![conftest R1 et R2](docs/captures/j3-pssi-conftest-rouge.png)
 
-### Qui trouve la faille de `GET /tasks/search` ?
-
-| | La trouve ? | Quelle information ? | Quand ? | Limite ? |
-| --- | --- | --- | --- | --- |
-| **SAST** (Bandit, Semgrep) | Oui : le code de la route est dans le dépôt | Le fichier et la ligne exacte du code dangereux | Très tôt : à chaque PR, avant tout déploiement | Faux positifs ; ne sait pas si la faille est vraiment exploitable |
-| **DAST** (OWASP ZAP) | Pas forcément : il ne voit que ce qu'il découvre en explorant l'appli | La requête qui déclenche la faille, vue de l'extérieur | Tard : l'appli doit être déployée | Ne trouve pas une route qu'aucun lien n'expose ; ne dit pas où corriger dans le code |
-| **IAST** (sonde dans l'appli) | Oui : la route a un test, donc la sonde la voit s'exécuter | La requête **et** la ligne de code touchée | Pendant les tests automatiques | Aveugle sur le code qu'aucun test n'exécute |
-
-Conclusion : aucun outil ne suffit seul. Le SAST attrape tôt, l'IAST confirme sur le code testé,
-le DAST montre ce qu'un attaquant voit vraiment.
 
 ### Deux pistes d'optimisation
 
