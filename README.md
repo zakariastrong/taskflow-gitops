@@ -381,3 +381,83 @@ Tous les détails, les preuves et les actions sont dans le postmortem :
 - L'abort protège les utilisateurs ; le revert dans Git remet la vérité en place.
 - Quand l'analyse bloque un retour vers une version déjà validée : `retry` puis `promote --full`,
   pour appliquer ce que Git demande.
+
+## Jour 3, après-midi : la PSSI devient un check
+
+Objectif : traduire une mini-PSSI en règles automatiques et **bloquantes**.
+Une règle de sécurité n'existe que si un pipeline la vérifie, et une exception que si elle est datée.
+
+### Tableau PSSI : règle → contrôle → outil → preuve
+
+| Règle | Exigence | Contrôle automatique | Outil | Preuve |
+| --- | --- | --- | --- | --- |
+| R1 | Tag explicite, jamais `latest` | Check obligatoire « PSSI manifests (conftest) » sur chaque PR | conftest (`policies/kubernetes.rego`) | PR non conforme `nginx:latest` bloquée : `FAIL PSSI-R1` |
+| R2 | Images du registre `ghcr.io/9m7fjfpv9k-cyber/` uniquement | Même check | conftest | Même PR bloquée : `FAIL PSSI-R2` |
+| R3 | Limite de mémoire sur chaque conteneur | Même check (règle écrite par nous) | conftest | Test local d'un Deployment sans limite : `FAIL PSSI-R3` ; notre Rollout a `limits.memory: 256Mi` |
+| R4 | Pods jamais en root | Même check (règle écrite par nous) | conftest | Rollout refusé avant correction (`FAIL PSSI-R4`), puis 25/25 après `runAsNonRoot: true` ; pod en prod : `uid=10001(appuser)` |
+| R5 | Aucune vulnérabilité HIGH/CRITICAL corrigeable | Check obligatoire « PSSI images (Trivy) » | Trivy | 9 CVE HIGH trouvées dans la 2.2.0 (check rouge), exception datée dans `.trivyignore`, puis check vert |
+
+Les deux checks sont **obligatoires** dans le ruleset `protection-main`, en plus de la PR approuvée par le binôme.
+
+### Ce qu'on a fait
+
+| Étape | PR | Résultat |
+| --- | --- | --- |
+| Écrire R3 et R4, ajouter `securityContext` au Rollout | feat/pssi-r3-r4 | Canary 2.2.0 non-root promu, analyse k6 réussie |
+| Brancher la CI `.github/workflows/pssi.yml` | #25 | Trivy rouge (9 CVE), puis vert après exception datée |
+| Rendre les checks obligatoires | Ruleset | Merge impossible si un check est rouge |
+| PR non conforme `nginx:latest` | test/pr-non-conforme | conftest rouge (R1 + R2), merge bloqué ; image remise en 2.2.0, puis PR réutilisée pour ce livrable |
+
+### L'exception R5
+
+Trivy a trouvé 9 failles HIGH corrigeables dans les bibliothèques Python de l'image 2.2.0
+(`starlette` 0.41.3 : 3 CVE ; `urllib3` 1.26.20 : 6 CVE).
+
+On ne peut pas corriger nous-mêmes : l'image est publiée par l'équipe du cours.
+L'exception est donc **écrite, justifiée, datée et validée en PR** dans `.trivyignore`,
+avec une expiration au **22/10/2026** (`exp:2026-10-22`). Après cette date, le check redevient rouge tout seul.
+Correctif demandé : `starlette >= 1.3.1`, `urllib3 >= 2.8.0`.
+
+### Captures
+
+**R5 : Trivy rouge sur l'image 2.2.0 (9 CVE HIGH corrigeables)**
+
+![Trivy rouge](docs/captures/j3-pssi-trivy-rouge.png)
+
+**Après l'exception datée : les deux checks PSSI verts sur `main`**
+
+![CI PSSI verte](docs/captures/j3-pssi-ci-verte.png)
+
+**Les checks PSSI obligatoires dans le ruleset**
+
+![Ruleset](docs/captures/j3-pssi-ruleset.png)
+
+**La PR non conforme (`nginx:latest`) bloquée par R1 et R2**
+
+![conftest R1 et R2](docs/captures/j3-pssi-conftest-rouge.png)
+
+### Qui trouve la faille de `GET /tasks/search` ?
+
+| | La trouve ? | Quelle information ? | Quand ? | Limite ? |
+| --- | --- | --- | --- | --- |
+| **SAST** (Bandit, Semgrep) | Oui : le code de la route est dans le dépôt | Le fichier et la ligne exacte du code dangereux | Très tôt : à chaque PR, avant tout déploiement | Faux positifs ; ne sait pas si la faille est vraiment exploitable |
+| **DAST** (OWASP ZAP) | Pas forcément : il ne voit que ce qu'il découvre en explorant l'appli | La requête qui déclenche la faille, vue de l'extérieur | Tard : l'appli doit être déployée | Ne trouve pas une route qu'aucun lien n'expose ; ne dit pas où corriger dans le code |
+| **IAST** (sonde dans l'appli) | Oui : la route a un test, donc la sonde la voit s'exécuter | La requête **et** la ligne de code touchée | Pendant les tests automatiques | Aveugle sur le code qu'aucun test n'exécute |
+
+Conclusion : aucun outil ne suffit seul. Le SAST attrape tôt, l'IAST confirme sur le code testé,
+le DAST montre ce qu'un attaquant voit vraiment.
+
+### Deux pistes d'optimisation
+
+1. **Ne lancer le test de charge k6 que si le pod change.** Aujourd'hui, toute modification de `spec.template`
+   déclenche un canary avec 60 s de test. On peut garder le test pour les changements d'image
+   et d'environnement, et sauter l'analyse pour une modification de documentation ou de métadonnées.
+2. **Scanner les images la nuit, pas seulement sur les PR.** Une nouvelle CVE peut sortir alors que personne n'ouvre de PR.
+   Un `schedule` (cron) dans `pssi.yml` relancerait Trivy chaque nuit sur l'image en production.
+   On garde le scan sur chaque PR, et on y ajoute le cache de la base Trivy pour aller plus vite.
+
+### Ce qu'on retient
+
+- Une règle écrite dans un document ne protège rien. Une règle dans un **check obligatoire** bloque le merge.
+- Une règle qu'on n'a jamais vue échouer ne prouve rien : on l'a testée avec un fichier non conforme.
+- Une exception n'est acceptable que si elle est **justifiée et datée**, et qu'elle expire toute seule.
