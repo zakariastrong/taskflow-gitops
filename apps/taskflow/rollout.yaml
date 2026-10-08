@@ -23,7 +23,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: taskflow
-          image: ghcr.io/9m7fjfpv9k-cyber/taskflow:2.2.0
+          image: nginx:latest
           ports:
             - name: http
               containerPort: 8000
