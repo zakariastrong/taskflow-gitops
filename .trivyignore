@@ -1,0 +1,19 @@
+# Exceptions PSSI-R5, validées en PR. Une ligne = une faille acceptée temporairement.
+# Image concernée : ghcr.io/9m7fjfpv9k-cyber/taskflow:2.2.0 (bibliothèques Python).
+# Justification : l'image est publiée par l'équipe du cours ; nous n'avons ni le code
+# source ni le droit de publier une image corrigée. Correctif demandé : starlette >= 1.3.1,
+# urllib3 >= 2.8.0. Exception ouverte le 08/10/2026 par zakariastrong,
+# validée par Milhhhhane. Expiration le 22/10/2026 : passé cette date, le check redevient rouge.
+
+# starlette 0.41.3
+CVE-2025-62727 exp:2026-10-22
+CVE-2026-48818 exp:2026-10-22
+CVE-2026-54283 exp:2026-10-22
+
+# urllib3 1.26.20
+CVE-2025-66418 exp:2026-10-22
+CVE-2025-66471 exp:2026-10-22
+CVE-2026-21441 exp:2026-10-22
+CVE-2026-44431 exp:2026-10-22
+CVE-2026-97687 exp:2026-10-22
+CVE-2026-97689 exp:2026-10-22
